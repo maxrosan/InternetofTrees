@@ -70,7 +70,7 @@ while True:
 	radio.stopListening()
 	if (string == "CHARGING PROBLEM") :
 		battery_status = string
-		sql = ("""INSERT INTO mesures(battery_status) VALUES (%s)""", (battery_status))
+		sql = ("""INSERT INTO measures(battery_status) VALUES (%s)""", (battery_status))
                 try:
                         print "Writing to database..."
                         #Execute the SQL command
@@ -98,7 +98,7 @@ while True:
 			print(humidity)
 			print(brightness)
 			print(sapflow)
-			sql = ("""INSERT INTO mesures(id,date,timestamp,temperature,luminosity,humidity,sapflow) VALUES (%s,%s,%s,%s,%s,%s,%s)""", (id,date,datetimeWrite,temperature,brightness,humidity,sapflow))
+			sql = ("""INSERT INTO measures(id,date,timestamp,temperature,luminosity,humidity,sapflow) VALUES (%s,%s,%s,%s,%s,%s,%s)""", (id,date,datetimeWrite,temperature,brightness,humidity,sapflow))
 			try:
 				print "Writing to database..."
 				#Execute the SQL command
