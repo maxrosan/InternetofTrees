@@ -1,9 +1,11 @@
-
 //Authors : Oumeima El Isbihani
 //          Max Rosan
 
 #define MOCK 1
-
+#define RADIO_ENABLED 1
+#define READ_DHT 1
+#define READ_LIGHT 1
+#define READ_ADS 1
 
 #include <RF24.h>
 #include <RF24_config.h>
@@ -11,27 +13,36 @@
 #include <nRF24L01.h>
 #include <SPI.h>
 
-#include <SimpleTimer.h>                                                    //Library to do timed loops
+//#include <SimpleTimer.h>                                                    //Library to do timed loops
 
 #ifndef MOCK
 #include <Adafruit_Sensor.h>                                                 //humidity + temp sensor
-#include <DHT.h>                                                             //humidity + temp sensor
-#include <DHT_U.h>                                                           //humidity + temp sensor
 #include <Battery.h>                                                        //battery monitoring
 #include "MCP3421.h"                                                        //ADC converter SapFlowSensor
 #include <Wire.h>
 #endif
 
+#if READ_DHT
+#include <DHT.h>                                                             //humidity + temp sensor
+#include <DHT_U.h>                                                           //humidity + temp sensor
+#endif
+
+#if READ_ADS
+#include <Adafruit_ADS1015.h>
+#endif
+
 #include "LowPower.h"                                                       //power consumption
 
 #include <math.h>                                                           //to use the log for heat velocity
+#include <stdio.h>
+#include <printf.h>
 
 #define POWER_SENSE A1                                                      //must be analog pin
 #define POWER_ACTIV A2                                                      //either analog or digital
-#define DHTPIN 7                                                            //pin for to the DHT sensor
+#define DHTPIN 2                                                           //pin for to the DHT sensor
 #define DHTTYPE DHT11                                                       //DHT 11 type
 
-const int sensor_light = A0;                                                //pin for the light sensor
+const int sensor_light = A2;                                                //pin for the light sensor
 
 const int transistorH_cap = 4;                                              //connected to the base of the first transistor for charging the capacitor
 const int transistorB_cap = 5;                                              //connected to the base of the second transistor between the capacitor and the wire
@@ -61,12 +72,23 @@ float minimum_batteryvoltage = 6.00;
 float battery_level;
 float battery_voltage;
 
-SimpleTimer timer;                                                          // the timer object
+//SimpleTimer timer;                                                          // the timer object
 
 #ifndef MOCK
 Battery battery(6000, 8400, POWER_SENSE, POWER_ACTIV);                      // Battery(uint16_t minVoltage, uint16_t maxVoltage, uint8_t sensePin, uint8_t activationPin = 0xFF);
-DHT_Unified dht(DHTPIN, DHTTYPE);                                           //DHT definition
 MCP3421 MCP = MCP3421();                                                    //ADC definition MCP3421
+#endif
+
+#if READ_DHT
+DHT_Unified dht(DHTPIN, DHTTYPE);                                           //DHT definition
+#endif
+
+#if READ_ADS
+Adafruit_ADS1115 ads;  // Declare an instance of the ADS1115
+
+int16_t rawADCvalue;  // The is where we store the value we receive from the ADS1115
+float scalefactor = 0.1875F; // This is the scale factor for the default +/- 6.144 Volt Range we will use
+float volts = 0.0; // The result of applying the scale factor to the raw value
 #endif
 
 String temp;
@@ -104,7 +126,8 @@ struct packetData {
   float temperature;
   float humidity;
   float brightness;
-  float flow;
+  float temperature_sensor_1;
+  float temperature_sensor_2;
 };
 
 struct {
@@ -122,17 +145,18 @@ enum { ACTION_SENSOR_CONFIGURED, ACTION_SENSOR_DATA_COLLECTION_DONE };
 uint8_t receivedMessage[32] = {0} ;
 int stateSensor;
 
+#if RADIO_ENABLED
 RF24 radio(9, 10);
+#endif
 
 const uint64_t pipeWriting = 0xE6E6E6E6E6E6, pipeReading = 0xF6F6F6F6F6F6;
 
 // Sensors
 
 void setup_DHT11(void){
-
-#ifndef MOCK  
   
 // Initialize device.
+#if READ_DHT
   dht.begin();
 
   sensor_t sensor;
@@ -140,7 +164,6 @@ void setup_DHT11(void){
   dht.humidity().getSensor(&sensor);
   // Set delay between sensor readings based on sensor details.
 //  delayMS = sensor.min_delay / 1000;;
-
 #endif
 
 }
@@ -148,7 +171,7 @@ void setup_DHT11(void){
 
 inline static bool get_DHT11(struct packetData *data){
 
-#ifndef MOCK
+#if READ_DHT
   
   sensors_event_t event;
   dht.humidity().getEvent(&event);
@@ -158,14 +181,17 @@ inline static bool get_DHT11(struct packetData *data){
     return false;
   }
 
+  data->humidity = event.relative_humidity;
+
+  dht.temperature().getEvent(&event);
+
   if (isnan(event.temperature)) {
     Serial.println("Failed to read humidity");
     return false;
   }
   
   data->temperature = event.temperature;
-  data->himidity = event.relative_humidity;
-
+  
 #else
 
   data->temperature = 15.;
@@ -179,7 +205,7 @@ inline static bool get_DHT11(struct packetData *data){
 
 void get_light(struct packetData *data) {
   
-#ifndef MOCK
+#if READ_LIGHT
 
   float sensorValue = (float) analogRead(sensor_light);                               //create a var to store the value of the sensor
   //Serial.println("the analog read data is ");                             //print on the serial monitor what's in the ""
@@ -190,6 +216,23 @@ void get_light(struct packetData *data) {
 #else
 
   data->brightness = 50.;
+
+#endif
+
+}
+
+void get_ads_values(struct packetData *data) {
+
+#if READ_ADS
+
+  data->temperature_sensor_1 = ads.readADC_Differential_0_1(); 
+  data->temperature_sensor_2 = ads.readADC_Differential_2_3(); 
+ 
+#else
+
+  data->temperature_sensor_1 = 0.0; 
+  data->temperature_sensor_2 = 0.0; 
+
 
 #endif
 
@@ -419,7 +462,7 @@ void sapflowcalculation(struct packetData *data){
   
 #else
 
-  data->flow = 1.;
+  //data->flow = 1.;
   result_1 = 0;
   result_2 = 0;
 
@@ -463,8 +506,10 @@ void setup() {
   // put your setup code here, to run once:
   
   stateSensor = STATE_WAITING_CONFIGURATION;  
+  
   Serial.begin(9600);  
   //Serial.setDebugOutput(true);
+  //printf_begin();
   
   setup_DHT11();
   
@@ -486,23 +531,38 @@ void setup() {
 
 #endif    
 
+#if READ_ADS
+  ads.begin();
+#endif
+
+#if RADIO_ENABLED
+
   radio.begin();
   radio.setChannel(0x50);
   radio.openWritingPipe(pipeWriting);
   radio.openReadingPipe(1, pipeReading);
   radio.enableDynamicPayloads();
-  radio.setPALevel(RF24_PA_MIN);
+  radio.setPALevel(RF24_PA_MAX);
+  radio.setPayloadSize(32);
+  //radio.setAutoAck(true);
+  //radio.enableAckPayload();
   
   radio.powerUp();
 
   delay(1000);
   
   radio.startListening();
+  radio.printDetails();
   
-  Serial.println("Waiting configuration");
+  Serial.println("Waiting configuration #");
+
+#endif
+
 }
 
 void loopWaitingConfiguration() {
+  
+//#if RADIO_ENABLED
 
   if(radio.available()){
   
@@ -534,6 +594,9 @@ void loopWaitingConfiguration() {
     }
     
   } 
+  
+//#endif
+  
 }
 
 inline static void sleep( uint32_t time ){
@@ -554,13 +617,16 @@ void loopSendingData() {
 
     get_DHT11(&data);
     get_light(&data);
-    sapflowcalculation(&data);    
+    //sapflowcalculation(&data);
+    get_ads_values(&data);
     
     sensorState.durationOfDataCollection--;
     
+#if RADIO_ENABLED
     radio.write(&data, sizeof(data));
+#endif
     
-    Serial.print("Sending data ");
+    Serial.print("data ");
     Serial.println(sizeof(data));
 
     //delay(sensorState.intervalToCollectData * 1000);
@@ -576,7 +642,7 @@ void loopSendingData() {
 }
 
 void loop() {
-  
+    
   if (stateSensor == STATE_WAITING_CONFIGURATION) {
     loopWaitingConfiguration();
   } else if (stateSensor == STATE_SENDING_DATA) {

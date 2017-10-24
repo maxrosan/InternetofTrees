@@ -34,10 +34,11 @@ class PacketData:
 		self.temperature = 0
 		self.humidity = 0
 		self.brightness = 0
-		self.flow = 0
+		self.temperature_sensor_1 = 0
+		self.temperature_sensor_2 = 0
 
 	def decodePacket(self, message):
-  		typePacket, self.temperature, self.humidity, self.brightness, self.flow = struct.unpack('<Bffff', message)
+  		typePacket, self.temperature, self.humidity, self.brightness, self.temperature_sensor_1, self.temperature_sensor_2 = struct.unpack('<Bfffff', message)
 
 class Sink:
 
@@ -52,14 +53,14 @@ class Sink:
 
 		radio = NRF24(GPIO, spidev.SpiDev())
 		# # csn & ce are RF24 terminology. csn = SPI's CE!
-		radio.begin(0, 28)
+		radio.begin(0, 25)
 		radio.setPayloadSize(32)
 		radio.setChannel(0x50)
 		radio.setDataRate(NRF24.BR_1MBPS)
-		radio.setPALevel(NRF24.PA_MIN)
-		radio.setAutoAck(True)
+		radio.setPALevel(NRF24.PA_MAX)
+		#radio.setAutoAck(True)
 		radio.enableDynamicPayloads()
-		radio.enableAckPayload()
+		#radio.enableAckPayload()
 
 		radio.openReadingPipe(1, self.pipes[0])
 		radio.openWritingPipe(self.pipes[1])
@@ -89,27 +90,38 @@ class Sink:
 		#while (self.isRadioAvailable(2)):
 		#	pass
 
-		pkt = PacketConfigure(5, 3)
+		self.radio.stopListening()
+
+		pkt = PacketConfigure(5, 30)
 		message = pkt.buildPacket()
 
 		print 'Sending configuraton packet'
 
 		#self.radio.startListening()
 
-		self.radio.write(message)
+		start = time.time()
+
+		while (time.time() - start < 10):
+			self.radio.write(message)
+			time.sleep(0.5)
 
 		self.fireAction(SinkActions.CONFIGURATION_DONE)
 
 		self.radio.startListening()
 
 	def _waitReads(self):
+
+
 		pd = PacketData()
 		receivedMessage = []
 		self.radio.read(receivedMessage, self.radio.getDynamicPayloadSize())
+
+		print 'len', len(receivedMessage)
+
 		bytes = array.array('B', receivedMessage).tostring()
 		pd.decodePacket(bytes)
 
-		print '%f %f %f %f' % ( pd.temperature, pd.humidity, pd.brightness, pd.flow )
+		print '%f %f %f %f %f' % ( pd.temperature, pd.humidity, pd.brightness, pd.temperature_sensor_1, pd.temperature_sensor_2 )
 
 		print receivedMessage
 
