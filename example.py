@@ -16,6 +16,7 @@ class SinkStates:
 
 class SinkActions:
 	CONFIGURATION_DONE = 1
+	READ_DONE = 2
 
 class PacketType:
 	CONFIGURE = 1
@@ -46,6 +47,9 @@ class Sink:
 		self.state = SinkStates.CONFIGURING
 		self.pipes = [ [ 0xE6, 0xE6, 0xE6, 0xE6, 0xE6, 0xE6 ], [ 0xF6, 0xF6, 0xF6, 0xF6, 0xF6, 0xF6 ] ]
 		self.radio = None
+		self.interval_read = 5
+		self.duration_read = 30000
+		self.start_receiving = 0
 
 	def configureRadio(self):
 
@@ -74,6 +78,8 @@ class Sink:
 	def fireAction(self, action):
 		if self.state == SinkStates.CONFIGURING and action == SinkActions.CONFIGURATION_DONE:
 			self.state = SinkStates.WAITING_READS
+		elif self.state == SinkStates.WAITING_READS and action == SinkActions.READ_DONE:
+			self.state = SinkStates.CONFIGURING
 
 	def isRadioAvailable(self, interval):
 
@@ -92,7 +98,7 @@ class Sink:
 
 		self.radio.stopListening()
 
-		pkt = PacketConfigure(5, 30)
+		pkt = PacketConfigure(self.interval_read, self.duration_read)
 		message = pkt.buildPacket()
 
 		print 'Sending configuraton packet'
@@ -109,8 +115,9 @@ class Sink:
 
 		self.radio.startListening()
 
-	def _waitReads(self):
+		self.start_receiving = time.time()
 
+	def _waitReads(self):
 
 		pd = PacketData()
 		receivedMessage = []
@@ -134,8 +141,15 @@ class Sink:
 			if self.state == SinkStates.CONFIGURING:
 				self._sendConfigurePacket()
 			elif self.state == SinkStates.WAITING_READS:
+
 				if self.isRadioAvailable(2):
 					self._waitReads()
+
+				if ( time.time() - self.start_receiving ) > ( ( 2 * self.duration_read )  * self.interval_read  ):
+					self.fireAction(SinkActions.READ_DONE)
+					print 'Restarting...'
+					time.sleep(5)
+					
 				
 		
 			
